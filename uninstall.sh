@@ -4,7 +4,7 @@
 # "Removes oocgroup binary, package installations, and cache."
 #
 # Usage:
-#   curl -fsSL https://openooda-toocgroup.github.io/oocgroup/uninstall.sh | bash
+#   curl -fsSL https://openooda-tools.github.io/oocgroup/uninstall.sh | bash
 #   or: ./uninstall.sh [options]
 #
 # Options:

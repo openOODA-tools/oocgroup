@@ -1,0 +1,86 @@
+// # cgroup v2 Data Structures and Models
+//
+// Logline: Data types for cgroup v2 controllers, resource telemetry, and systemd bounds.
+//
+// Setup: Encapsulates CPU, memory, IO, and PID controller metrics.
+//
+// Beats:
+//   1. Declare CgroupInfo structure for runtime metrics and paths.
+//   2. Declare CgroupLimits structure for configured resource boundaries.
+//   3. Declare CgroupAuditItem structure for vulnerability findings.
+//   4. Provide constructor helpers for typed models.
+
+pub type CgroupInfo = struct {
+    cgroup_path: String,
+    controllers: String,
+    memory_current: String,
+    memory_max: String,
+    cpu_max: String,
+    pids_current: String,
+    pids_max: String,
+    cgroup_version: Int
+};
+
+pub type CgroupLimits = struct {
+    memory_limit: String,
+    cpu_quota: String,
+    pids_limit: String,
+    systemd_dropin: String
+};
+
+pub type CgroupAuditItem = struct {
+    controller: String,
+    severity: String,
+    finding: String,
+    recommendation: String
+};
+
+pub fn make_cgroup_info(
+    path: String,
+    ctrls: String,
+    mem_cur: String,
+    mem_max: String,
+    cpu: String,
+    pids_cur: String,
+    pids_lim: String,
+    ver: Int
+) -> CgroupInfo {
+    return CgroupInfo {
+        cgroup_path: path,
+        controllers: ctrls,
+        memory_current: mem_cur,
+        memory_max: mem_max,
+        cpu_max: cpu,
+        pids_current: pids_cur,
+        pids_max: pids_lim,
+        cgroup_version: ver
+    };
+}
+
+pub fn make_cgroup_limits(
+    mem: String,
+    cpu: String,
+    pids: String,
+    dropin: String
+) -> CgroupLimits {
+    return CgroupLimits {
+        memory_limit: mem,
+        cpu_quota: cpu,
+        pids_limit: pids,
+        systemd_dropin: dropin
+    };
+}
+
+pub fn make_cgroup_audit_item(
+    ctrl: String,
+    sev: String,
+    find: String,
+    recom: String
+) -> CgroupAuditItem {
+    return CgroupAuditItem {
+        controller: ctrl,
+        severity: sev,
+        finding: find,
+        recommendation: recom
+    };
+}

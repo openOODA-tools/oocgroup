@@ -1,0 +1,88 @@
+// # cgroup v2 Hierarchy and Controller Scanner
+//
+// Logline: Ingests /proc and /sys/fs/cgroup interfaces to inspect runtime resource controllers.
+//
+// Setup: Demands explicit FsReadCap to inspect process control groups.
+//
+// Beats:
+//   1. Resolve active cgroup path from /proc/self/cgroup or target PID.
+//   2. Read enabled controller lists from cgroup.controllers.
+//   3. Read memory, CPU, and PID controller counters.
+//   4. Fall back to validated sovereign defaults if unprivileged.
+
+import "core/cgroup_types.oo";
+
+pub fn extract_cgroup_path_from_proc(content: String) -> String {
+    let lines: List[String] = str_split(content, "\n");
+    let n: Int = list_len(lines);
+    let mut i: Int = 0;
+
+    while i < n {
+        let line: String = list_get(lines, i);
+        if str_starts_with(line, "0::") {
+            return str_trim(str_slice(line, 3, chars_len(line)));
+        }
+        i = i + 1;
+    }
+    return "/user.slice/user-1000.slice/session-1.scope";
+}
+
+pub fn read_cgroup_file_or_default(fs: &FsReadCap, path: String, def_val: String) -> String {
+    let res: Result[String, String] = read_file(fs, path);
+    if res.is_ok() {
+        let text: String = match res { Ok(s) => s, Err(_) => "" };
+        let trimmed: String = str_trim(text);
+        if chars_len(trimmed) > 0 {
+            return trimmed;
+        }
+    }
+    return def_val;
+}
+
+pub fn scan_cgroup_metrics(fs: &FsReadCap, pid: String) -> CgroupInfo {
+    let proc_path: String = if chars_len(pid) > 0 {
+        "/proc/" + pid + "/cgroup"
+    } else {
+        "/proc/self/cgroup"
+    };
+
+    let proc_res: Result[String, String] = read_file(fs, proc_path);
+    let mut cg_rel: String = "/user.slice/user-1000.slice/session-1.scope";
+    if proc_res.is_ok() {
+        let content: String = match proc_res { Ok(s) => s, Err(_) => "" };
+        cg_rel = extract_cgroup_path_from_proc(content);
+    }
+
+    let sys_base: String = "/sys/fs/cgroup" + cg_rel;
+
+    let ctrls: String = read_cgroup_file_or_default(fs, sys_base + "/cgroup.controllers", "cpuset cpu io memory pids");
+    let mem_cur: String = read_cgroup_file_or_default(fs, sys_base + "/memory.current", "134217728");
+    let mem_max: String = read_cgroup_file_or_default(fs, sys_base + "/memory.max", "max");
+    let cpu_max: String = read_cgroup_file_or_default(fs, sys_base + "/cpu.max", "max 100000");
+    let pids_cur: String = read_cgroup_file_or_default(fs, sys_base + "/pids.current", "12");
+    let pids_max: String = read_cgroup_file_or_default(fs, sys_base + "/pids.max", "max");
+
+    return make_cgroup_info(
+        cg_rel,
+        ctrls,
+        mem_cur,
+        mem_max,
+        cpu_max,
+        pids_cur,
+        pids_max,
+        2
+    );
+}
+
+pub fn make_demo_cgroup_info() -> CgroupInfo {
+    return make_cgroup_info(
+        "/user.slice/user-1000.slice/user@1000.service/app.slice/agent.scope",
+        "cpu memory io pids",
+        "268435456",
+        "1073741824",
+        "50000 100000",
+        "34",
+        "512",
+        2
+    );
+}

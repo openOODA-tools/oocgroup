@@ -1,52 +1,93 @@
 // # oocgroup Main Entry Point
 //
-// Logline: Creates and configures cgroup v2 resource limits for memory, cpu, and io controllers.
+// Logline: Sovereign cgroup v2 manager and systemd resource limit synthesizer.
 //
 // Setup: Demands explicit capability tokens and standard argument list.
 //
 // Beats:
 //   1. Parse command-line options and dispatch --help, --version, or --mcp.
-//   2. Execute capability-bounded oocgroup operations.
-//   3. Format and output structured results to standard output.
+//   2. Inspect active cgroup v2 controllers and resource counters.
+//   3. Compute memory and CPU boundaries or generate systemd unit drop-in files.
+//   4. Format and output structured results to standard output.
+
+import "core/cgroup_types.oo";
+import "core/cgroup_scan.oo";
+import "core/cgroup_calc.oo";
+import "core/cgroup_audit.oo";
+import "render/cgroup_theme.oo";
+import "ipc/cgroup_opts.oo";
+import "ipc/mcp_serve.oo";
 
 fn render_help() -> String {
-    return "oocgroup 0.1.0 (openOODA sovereign system & monitor)\n"
-        + "usage: oocgroup [options] [ARGUMENTS]...\n\n"
+    return "oocgroup 0.2.0 (openOODA sovereign cgroup manager)\n"
+        + "usage: oocgroup [options] [PID]\n\n"
         + "Creates and configures cgroup v2 resource limits for memory, cpu, and io controllers.\n\n"
         + "Options:\n"
+        + "  -p, --pid <PID>      target process ID to inspect (default: self)\n"
+        + "  -i, --inspect        inspect cgroup path, controllers, and resource usage [default]\n"
+        + "  -a, --audit          audit cgroup limits against host exhaustion policies\n"
+        + "  -s, --systemd        generate systemd resource-control drop-in configuration\n"
+        + "  -m, --memory <SPEC>  set memory limit (e.g. 512M, 2G, or bytes)\n"
+        + "  -c, --cpu <SPEC>     set CPU quota (e.g. 50%, 200%, or quota/period)\n"
+        + "      --pids <MAX>     set maximum task count (e.g. 256, 1024)\n"
+        + "  -u, --unit <NAME>    unit service name for drop-in generation [default: app]\n"
+        + "  -t, --to <FORMAT>    target format: panel, json, diag\n"
+        + "      --json           output formatted as structured JSON\n"
+        + "      --demo           use built-in sample cgroup metrics\n"
+        + "      --mcp            run as Model Context Protocol stdio server\n"
         + "  -h, --help           display this help and exit\n"
-        + "  -v, --version        output version information and exit\n"
-        + "      --json           output formatted as JSON Lines\n"
-        + "      --color <WHEN>   colorize output: auto, always, never [default: auto]\n"
-        + "      --theme <NAME>   override active oote palette\n"
-        + "      --mcp            run as Model Context Protocol stdio server\n";
+        + "  -v, --version        output version information and exit\n";
 }
 
-fn render_version() -> String {
-    return "oocgroup 0.1.0 (openOODA sovereign system & monitor)\n";
-}
+pub fn main(
+    fs: &FsReadCap,
+    proc_cap: &ProcessCap,
+    env: &EnvCap,
+    args: List[String]
+) -> Result[Int, String] {
+    let opt: CgroupOpts = parse_cgroup_opts(args);
 
-fn main(args: List[String]) -> Int {
-    let num_args: Int = list_len(args);
-    let mut i: Int = 0;
-
-    while i < num_args {
-        let arg: String = list_get(args, i);
-        if arg == "-h" || arg == "--help" {
-            print(render_help());
-            return 0;
-        }
-        if arg == "-v" || arg == "--version" {
-            print(render_version());
-            return 0;
-        }
-        if arg == "--mcp" {
-            print("{\"jsonrpc\":\"2.0\",\"result\":{\"status\":\"ready\",\"tool\":\"oocgroup\"}}\n");
-            return 0;
-        }
-        i = i + 1;
+    if opt.help_mode {
+        print(render_help());
+        return Ok(0);
+    }
+    if opt.version_mode {
+        print("oocgroup 0.2.0 (openOODA sovereign cgroup manager)\n");
+        return Ok(0);
+    }
+    if opt.mcp_mode {
+        run_mcp_server(fs);
+        return Ok(0);
     }
 
-    print("oocgroup: sovereign capability-bounded utility ready\n");
-    return 0;
+    let info: CgroupInfo = if opt.demo_mode {
+        make_demo_cgroup_info()
+    } else {
+        scan_cgroup_metrics(fs, opt.pid)
+    };
+
+    let mut dropin: String = "";
+    if chars_len(opt.memory_limit) > 0 || chars_len(opt.cpu_quota) > 0 || chars_len(opt.pids_limit) > 0 || opt.action == "systemd" {
+        let mem_val: String = if chars_len(opt.memory_limit) > 0 { opt.memory_limit } else { "1G" };
+        let cpu_val: String = if chars_len(opt.cpu_quota) > 0 { opt.cpu_quota } else { "50%" };
+        let pids_val: String = if chars_len(opt.pids_limit) > 0 { opt.pids_limit } else { "512" };
+        dropin = generate_systemd_dropin(mem_val, cpu_val, pids_val, opt.unit_name);
+    }
+
+    let limits: CgroupLimits = make_cgroup_limits(
+        opt.memory_limit,
+        opt.cpu_quota,
+        opt.pids_limit,
+        dropin
+    );
+
+    let findings: List[CgroupAuditItem] = audit_cgroup(info);
+
+    if opt.json_mode || opt.to_format == "json" {
+        print(render_cgroup_json(info, limits, findings));
+        return Ok(0);
+    }
+
+    print(render_cgroup_panel(info, limits, findings));
+    return Ok(0);
 }

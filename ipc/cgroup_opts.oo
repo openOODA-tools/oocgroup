@@ -1,0 +1,99 @@
+// # oocgroup Command-Line Options Parser
+//
+// Logline: Command-line flag tokenizer and configuration builder for cgroup operations.
+//
+// Setup: Parses arguments vector into structured execution parameters.
+//
+// Beats:
+//   1. Declare CgroupOpts structure with resource limit and audit flags.
+//   2. Iterate command arguments and assign operation modes.
+//   3. Handle memory, CPU quota, PID bounds, and systemd switches.
+//   4. Provide default execution parameters.
+
+pub type CgroupOpts = struct {
+    action: String,
+    pid: String,
+    memory_limit: String,
+    cpu_quota: String,
+    pids_limit: String,
+    unit_name: String,
+    to_format: String,
+    json_mode: Bool,
+    demo_mode: Bool,
+    mcp_mode: Bool,
+    help_mode: Bool,
+    version_mode: Bool
+};
+
+pub fn default_cgroup_opts() -> CgroupOpts {
+    return CgroupOpts {
+        action: "inspect",
+        pid: "",
+        memory_limit: "",
+        cpu_quota: "",
+        pids_limit: "",
+        unit_name: "",
+        to_format: "",
+        json_mode: false,
+        demo_mode: false,
+        mcp_mode: false,
+        help_mode: false,
+        version_mode: false
+    };
+}
+
+pub fn parse_cgroup_opts(args: List[String]) -> CgroupOpts {
+    let mut opts: CgroupOpts = default_cgroup_opts();
+    let num_args: Int = list_len(args);
+    let mut i: Int = 0;
+
+    while i < num_args {
+        let arg: String = list_get(args, i);
+        if arg == "-h" || arg == "--help" {
+            opts.help_mode = true;
+        } else if arg == "-v" || arg == "--version" {
+            opts.version_mode = true;
+        } else if arg == "--mcp" {
+            opts.mcp_mode = true;
+        } else if arg == "--json" {
+            opts.json_mode = true;
+        } else if arg == "--demo" {
+            opts.demo_mode = true;
+        } else if arg == "-i" || arg == "--inspect" {
+            opts.action = "inspect";
+        } else if arg == "-a" || arg == "--audit" {
+            opts.action = "audit";
+        } else if arg == "-s" || arg == "--systemd" {
+            opts.action = "systemd";
+        } else if (arg == "-p" || arg == "--pid") && (i + 1 < num_args) {
+            i = i + 1;
+            opts.pid = list_get(args, i);
+        } else if (arg == "-m" || arg == "--memory") && (i + 1 < num_args) {
+            i = i + 1;
+            opts.memory_limit = list_get(args, i);
+        } else if (arg == "-c" || arg == "--cpu") && (i + 1 < num_args) {
+            i = i + 1;
+            opts.cpu_quota = list_get(args, i);
+        } else if arg == "--pids" && (i + 1 < num_args) {
+            i = i + 1;
+            opts.pids_limit = list_get(args, i);
+        } else if (arg == "-u" || arg == "--unit") && (i + 1 < num_args) {
+            i = i + 1;
+            opts.unit_name = list_get(args, i);
+        } else if (arg == "-t" || arg == "--to") && (i + 1 < num_args) {
+            i = i + 1;
+            opts.to_format = list_get(args, i);
+        } else if !str_starts_with(arg, "-") && chars_len(opts.pid) == 0 {
+            opts.pid = arg;
+        }
+        i = i + 1;
+    }
+
+    if chars_len(opts.memory_limit) > 0 || chars_len(opts.cpu_quota) > 0 || chars_len(opts.pids_limit) > 0 {
+        if opts.action == "inspect" {
+            opts.action = "systemd";
+        }
+    }
+
+    return opts;
+}

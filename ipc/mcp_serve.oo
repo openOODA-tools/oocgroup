@@ -1,0 +1,157 @@
+// # oocgroup Model Context Protocol (MCP) Server
+//
+// Logline: JSON-RPC 2.0 stdio server providing cgroup inspection, limit calculation, and audit tools.
+//
+// Setup: Zero-leakage capability-bounded request router over standard input/output.
+//
+// Beats:
+//   1. Handle MCP initialize and protocol version negotiation.
+//   2. Advertise cgroup_inspect, cgroup_limits, cgroup_systemd, cgroup_audit, and cgroup_tree tools.
+//   3. Dispatch tools/call requests and format JSON-RPC responses.
+//   4. Process streaming stdio request loop.
+
+import "core/cgroup_types.oo";
+import "core/cgroup_scan.oo";
+import "core/cgroup_calc.oo";
+import "core/cgroup_audit.oo";
+import "render/cgroup_theme.oo";
+import "ipc/json_field.oo";
+
+pub fn mcp_tools_list(id_val: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"tools\":["
+        + "{\"name\":\"cgroup_inspect\",\"description\":\"Inspect cgroup path, controllers, and resource metrics.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pid\":{\"type\":\"string\"}}}},"
+        + "{\"name\":\"cgroup_limits\",\"description\":\"Calculate and format cgroup memory and CPU limits.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"memory\":{\"type\":\"string\"},\"cpu\":{\"type\":\"string\"},\"pids\":{\"type\":\"string\"}}}},"
+        + "{\"name\":\"cgroup_systemd\",\"description\":\"Generate systemd resource control drop-in directives.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"memory\":{\"type\":\"string\"},\"cpu\":{\"type\":\"string\"},\"pids\":{\"type\":\"string\"},\"unit\":{\"type\":\"string\"}}}},"
+        + "{\"name\":\"cgroup_audit\",\"description\":\"Audit cgroup configuration for unbounded OOM and CPU risks.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pid\":{\"type\":\"string\"}}}},"
+        + "{\"name\":\"cgroup_tree\",\"description\":\"Inspect cgroup hierarchy slice and scope paths.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pid\":{\"type\":\"string\"}}}}"
+        + "]}}\n";
+}
+
+pub fn handle_inspect(id_val: String, args: String, fs: &FsReadCap) -> String {
+    let pid_val: String = json_get_string(args, "pid");
+    let info: CgroupInfo = scan_cgroup_metrics(fs, pid_val);
+    let limits: CgroupLimits = make_cgroup_limits("", "", "", "");
+    let findings: List[CgroupAuditItem] = audit_cgroup(info);
+    let panel: String = render_cgroup_panel(info, limits, findings);
+
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""
+        + json_escape_string(panel) + "\""
+        + "}]}}\n";
+}
+
+pub fn handle_limits(id_val: String, args: String) -> String {
+    let mem: String = json_get_string(args, "memory");
+    let cpu: String = json_get_string(args, "cpu");
+    let pids: String = json_get_string(args, "pids");
+
+    let mem_bytes: String = parse_memory_spec(mem);
+    let cpu_quota: String = parse_cpu_spec(cpu);
+
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""
+        + "Memory: " + mem_bytes + " bytes (" + format_bytes_human(mem_bytes) + ")\\n"
+        + "CPU: " + cpu_quota + "\\n"
+        + "Tasks: " + pids + "\""
+        + "}]}}\n";
+}
+
+pub fn handle_systemd(id_val: String, args: String) -> String {
+    let mem: String = json_get_string(args, "memory");
+    let cpu: String = json_get_string(args, "cpu");
+    let pids: String = json_get_string(args, "pids");
+    let unit: String = json_get_string(args, "unit");
+
+    let mem_bytes: String = parse_memory_spec(mem);
+    let cpu_quota: String = parse_cpu_spec(cpu);
+    let dropin: String = generate_systemd_dropin(mem_bytes, cpu_quota, pids, unit);
+
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""
+        + json_escape_string(dropin) + "\""
+        + "}]}}\n";
+}
+
+pub fn handle_audit(id_val: String, args: String, fs: &FsReadCap) -> String {
+    let pid_val: String = json_get_string(args, "pid");
+    let info: CgroupInfo = scan_cgroup_metrics(fs, pid_val);
+    let findings: List[CgroupAuditItem] = audit_cgroup(info);
+
+    let mut out: String = "cgroup Security Audit (" + to_string(list_len(findings)) + " findings):\n";
+    let n: Int = list_len(findings);
+    let mut i: Int = 0;
+    while i < n {
+        let it: CgroupAuditItem = list_get(findings, i);
+        out = out + "[" + it.severity + "] Controller: " + it.controller + "\n";
+        out = out + "  Finding: " + it.finding + "\n";
+        out = out + "  Fix:     " + it.recommendation + "\n";
+        i = i + 1;
+    }
+
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""
+        + json_escape_string(out) + "\""
+        + "}]}}\n";
+}
+
+pub fn handle_tree(id_val: String, args: String, fs: &FsReadCap) -> String {
+    let pid_val: String = json_get_string(args, "pid");
+    let info: CgroupInfo = scan_cgroup_metrics(fs, pid_val);
+
+    let out: String = "cgroup v2 Hierarchy:\n"
+        + "  |- /sys/fs/cgroup (unified root)\n"
+        + "  |   `- " + info.cgroup_path + "\n"
+        + "  Controllers: [" + info.controllers + "]\n";
+
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""
+        + json_escape_string(out) + "\""
+        + "}]}}\n";
+}
+
+pub fn handle_mcp_line(line: String, fs: &FsReadCap) -> String {
+    let trimmed: String = str_trim(line);
+    if chars_len(trimmed) == 0 { return ""; }
+
+    let id_val: String = json_get_field(trimmed, "id");
+    let mut eff_id: String = "null";
+    if chars_len(id_val) > 0 { eff_id = id_val; }
+
+    let method: String = json_get_string(trimmed, "method");
+    if method == "initialize" {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + eff_id + ",\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"oocgroup\",\"version\":\"0.2.0\"}}}\n";
+    }
+    if method == "tools/list" {
+        return mcp_tools_list(eff_id);
+    }
+    if method == "tools/call" {
+        let params: String = json_get_field(trimmed, "params");
+        let name: String = json_get_string(params, "name");
+        let args: String = json_get_field(params, "arguments");
+
+        if name == "cgroup_inspect" { return handle_inspect(eff_id, args, fs); }
+        if name == "cgroup_limits" { return handle_limits(eff_id, args); }
+        if name == "cgroup_systemd" { return handle_systemd(eff_id, args); }
+        if name == "cgroup_audit" { return handle_audit(eff_id, args, fs); }
+        if name == "cgroup_tree" { return handle_tree(eff_id, args, fs); }
+
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + eff_id + ",\"error\":{\"code\":-32601,\"message\":\"Unknown tool\"}}\n";
+    }
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + eff_id + ",\"result\":{}}\n";
+}
+
+pub fn run_mcp_server(fs: &FsReadCap) {
+    let mut running: Bool = true;
+    while running {
+        let line_res: Result[String, String] = oo_read_stdin_chunk(fs, 8192);
+        if !line_res.is_ok() {
+            running = false;
+        } else {
+            let line: String = match line_res { Ok(s) => s, Err(_) => "" };
+            let trimmed: String = str_trim(line);
+            if chars_len(trimmed) == 0 {
+                running = false;
+            } else {
+                let resp: String = handle_mcp_line(trimmed, fs);
+                if chars_len(resp) > 0 {
+                    print(resp);
+                }
+            }
+        }
+    }
+}

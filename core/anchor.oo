@@ -1,0 +1,25 @@
+// # oocgroup Core Module Anchor
+//
+// Logline: Integrates cgroup scanners, resource calculators, and security audit engines.
+//
+// Setup: Bridges Linux control group v2 operations for CLI and agent consumers.
+//
+// Beats:
+//   1. Expose cgroup v2 model types and data structures.
+//   2. Expose hierarchy scanning and metric extraction routines.
+//   3. Expose limit calculators and systemd drop-in generators.
+//   4. Provide core subsystem verification predicate.
+
+import "core/cgroup_types.oo";
+import "core/cgroup_scan.oo";
+import "core/cgroup_calc.oo";
+import "core/cgroup_audit.oo";
+
+pub fn verify_core_subsystem(fs: &FsReadCap) -> Bool {
+    let info: CgroupInfo = scan_cgroup_metrics(fs, "");
+    let findings: List[CgroupAuditItem] = audit_cgroup(info);
+    let mem_spec: String = parse_memory_spec("1G");
+    let cpu_spec: String = parse_cpu_spec("50%");
+
+    return (mem_spec == "1073741824") && (cpu_spec == "50000 100000") && (list_len(findings) > 0);
+}

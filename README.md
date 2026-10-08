@@ -54,16 +54,24 @@ oocgroup-uninstall
 ## 2. CLI Usage
 
 ```
-usage: oocgroup [options] [ARGUMENTS]...
+usage: oocgroup [options] [PATH]
 
 Creates and configures cgroup v2 resource limits for memory, cpu, and io controllers.
 
 Options:
+  -p, --path <PATH>    inspect target cgroup v2 path (default: current cgroup)
+  -i, --info           display comprehensive controller and subtree inspection
+  -a, --audit          audit security delegation, unconstrained limits, and OOM risk
+  -s, --systemd        generate systemd service drop-in configuration
+  -m, --memory <SPEC>  specify memory limit (e.g. 512M, 2G, max)
+  -c, --cpu <SPEC>     specify CPU quota percentage (e.g. 50%, 200%, max)
+      --pids <MAX>     specify maximum task/pid count (e.g. 1000)
+  -u, --unit <NAME>    systemd unit name for drop-in generation (default: app)
+  -t, --tree           display cgroup hierarchy tree
+      --demo           run against synthetic demo cgroup
+      --json           output formatted as JSON Lines
   -h, --help           display this help and exit
   -v, --version        output version information and exit
-      --json           output formatted as JSON Lines
-      --color <WHEN>   colorize output: auto, always, never [default: auto]
-      --theme <NAME>   override active oote palette
       --mcp            run as Model Context Protocol stdio server
 ```
 
@@ -84,6 +92,19 @@ When invoked with `--mcp`, `oocgroup` runs a JSON-RPC 2.0 stdio server providing
 ```bash
 oocgroup --mcp
 ```
+
+### Available Tools
+
+* **`cgroup_inspect`**: Inspect cgroup hierarchy, active controllers, limits, and usage.
+  * Parameters: `path` (string, optional)
+* **`cgroup_limits`**: Calculate and parse memory, CPU quota, and PID limits.
+  * Parameters: `memory` (string), `cpu` (string), `pids` (string)
+* **`cgroup_systemd`**: Synthesize a systemd service drop-in unit snippet (`50-cgroup-limits.conf`).
+  * Parameters: `unit` (string), `memory` (string), `cpu` (string), `pids` (string)
+* **`cgroup_audit`**: Audit cgroup security delegation, unconstrained limits, and OOM risks.
+  * Parameters: `path` (string, optional)
+* **`cgroup_tree`**: Display visual cgroup hierarchy subtree.
+  * Parameters: `path` (string, optional)
 
 ---
 

@@ -1,7 +1,7 @@
 # Maintainer: openOODA-tools <ops@openooda.org>
 pkgname=oocgroup-bin
 _pkgname=oocgroup
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Creates and configures cgroup v2 resource limits for memory, cpu, and io controllers."
 arch=('x86_64')

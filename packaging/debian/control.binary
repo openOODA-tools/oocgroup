@@ -1,0 +1,11 @@
+Package: oocgroup
+Version: 0.2.0-1
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: openOODA-tools <ops@openooda.org>
+Depends: libc6
+Description: Sovereign CGROUP MANAGER
+ Creates and configures cgroup v2 resource limits for memory, cpu, and io controllers.
+ Pure openOODA utility with zero ambient authority, terminal ergonomics,
+ and native Model Context Protocol (MCP) server.

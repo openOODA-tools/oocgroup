@@ -1,0 +1,23 @@
+// # oocgroup IPC Module Anchor
+//
+// Logline: Integrates command-line option parsers and Model Context Protocol servers.
+//
+// Setup: Bridges user arguments and agent JSON-RPC interfaces for cgroup operations.
+//
+// Beats:
+//   1. Expose command-line option parser types and defaults.
+//   2. Expose JSON-RPC stdio server dispatch handlers.
+//   3. Provide IPC subsystem verification predicate.
+
+import "core/cgroup_types.oo";
+import "ipc/json_field.oo";
+import "ipc/cgroup_opts.oo";
+import "ipc/mcp_serve.oo";
+
+pub fn verify_ipc_subsystem() -> Bool {
+    let dummy_json: String = "{\"name\":\"cgroup_inspect\",\"arguments\":{\"pid\":\"1\"}}";
+    let field: String = json_get_string(dummy_json, "name");
+    let opts: CgroupOpts = default_cgroup_opts();
+
+    return (field == "cgroup_inspect") && (opts.action == "inspect");
+}

@@ -1,0 +1,99 @@
+// # cgroup Theme and Visual Panel Renderer
+//
+// Logline: Formats cgroup metric dashboards, systemd drop-in cards, and telemetry envelopes.
+//
+// Setup: Bridges terminal formatting with oote themes and structured JSON representations.
+//
+// Beats:
+//   1. Define ANSI styling tokens and header banners.
+//   2. Format cgroup controller metrics, memory usage, and CPU quotas.
+//   3. Format systemd drop-in configuration previews and audit findings tables.
+//   4. Serialize cgroup states into structured JSON telemetry.
+
+import "core/cgroup_types.oo";
+import "core/cgroup_calc.oo";
+
+fn esc() -> String {
+    return bytes_to_str(bytes_push(bytes_new(), 27));
+}
+
+pub fn render_ansi_header() -> String {
+    let e: String = esc();
+    let bold: String = e + "[1m";
+    let cyan: String = e + "[38;5;51m";
+    let reset: String = e + "[0m";
+    return cyan + bold + "=== oocgroup: Sovereign CGROUP MANAGER ===" + reset + "\n";
+}
+
+pub fn render_cgroup_panel(
+    info: CgroupInfo,
+    limits: CgroupLimits,
+    findings: List[CgroupAuditItem]
+) -> String {
+    let e: String = esc();
+    let bold: String = e + "[1m";
+    let green: String = e + "[38;5;82m";
+    let yellow: String = e + "[38;5;220m";
+    let red: String = e + "[38;5;196m";
+    let dim: String = e + "[38;5;242m";
+    let reset: String = e + "[0m";
+
+    let mut out: String = render_ansi_header();
+    out = out + dim + "============================================================" + reset + "\n";
+    out = out + bold + "Cgroup Path:   " + reset + info.cgroup_path + "\n";
+    out = out + bold + "Controllers:   " + green + info.controllers + reset + "\n";
+    out = out + bold + "Memory Usage:  " + reset + format_bytes_human(info.memory_current) + " / " + format_bytes_human(info.memory_max) + "\n";
+    out = out + bold + "CPU Limit:     " + reset + info.cpu_max + "\n";
+    out = out + bold + "Tasks / PIDs:  " + reset + info.pids_current + " / " + info.pids_max + "\n";
+    out = out + dim + "------------------------------------------------------------" + reset + "\n";
+
+    if chars_len(limits.systemd_dropin) > 0 {
+        out = out + bold + "Systemd Drop-in Preview:" + reset + "\n";
+        out = out + yellow + limits.systemd_dropin + reset;
+        out = out + dim + "------------------------------------------------------------" + reset + "\n";
+    }
+
+    out = out + bold + "Security Audit Findings (" + to_string(list_len(findings)) + "):" + reset + "\n";
+    let n: Int = list_len(findings);
+    let mut i: Int = 0;
+    while i < n {
+        let it: CgroupAuditItem = list_get(findings, i);
+        let sev_color: String = if it.severity == "CRITICAL" { red } else if it.severity == "WARN" { yellow } else { green };
+        out = out + "  [" + sev_color + bold + it.severity + reset + "] Controller: " + it.controller + "\n";
+        out = out + "    " + dim + "Finding: " + reset + it.finding + "\n";
+        out = out + "    " + dim + "Fix:     " + reset + it.recommendation + "\n";
+        i = i + 1;
+    }
+    out = out + dim + "============================================================" + reset + "\n";
+    return out;
+}
+
+pub fn render_cgroup_json(
+    info: CgroupInfo,
+    limits: CgroupLimits,
+    findings: List[CgroupAuditItem]
+) -> String {
+    let mut arr: String = "[";
+    let n: Int = list_len(findings);
+    let mut i: Int = 0;
+    while i < n {
+        let it: CgroupAuditItem = list_get(findings, i);
+        if i > 0 { arr = arr + ","; }
+        arr = arr + "{\"controller\":\"" + it.controller + "\","
+            + "\"severity\":\"" + it.severity + "\","
+            + "\"finding\":\"" + it.finding + "\","
+            + "\"recommendation\":\"" + it.recommendation + "\"}";
+        i = i + 1;
+    }
+    arr = arr + "]";
+
+    return "{\"status\":\"ok\",\"tool\":\"oocgroup\","
+        + "\"cgroup_path\":\"" + info.cgroup_path + "\","
+        + "\"controllers\":\"" + info.controllers + "\","
+        + "\"memory_current\":\"" + info.memory_current + "\","
+        + "\"memory_max\":\"" + info.memory_max + "\","
+        + "\"cpu_max\":\"" + info.cpu_max + "\","
+        + "\"pids_current\":\"" + info.pids_current + "\","
+        + "\"pids_max\":\"" + info.pids_max + "\","
+        + "\"findings\":" + arr + "}\n";
+}

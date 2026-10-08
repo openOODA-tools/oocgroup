@@ -1,0 +1,23 @@
+// # oocgroup Render Module Anchor
+//
+// Logline: Integrates cgroup dashboards, terminal panels, and JSON serializes.
+//
+// Setup: Bridges render pipeline routines for user and agent consumption.
+//
+// Beats:
+//   1. Expose cgroup dashboard panel formatters.
+//   2. Expose structured JSON telemetry serializers.
+//   3. Provide render subsystem verification predicate.
+
+import "core/cgroup_types.oo";
+import "render/cgroup_theme.oo";
+
+pub fn verify_render_subsystem() -> Bool {
+    let info: CgroupInfo = make_cgroup_info("path", "cpu", "0", "max", "max", "1", "max", 2);
+    let limits: CgroupLimits = make_cgroup_limits("", "", "", "");
+    let findings: List[CgroupAuditItem] = list_new();
+    let panel: String = render_cgroup_panel(info, limits, findings);
+    let json_text: String = render_cgroup_json(info, limits, findings);
+
+    return (chars_len(panel) > 0) && (chars_len(json_text) > 0);
+}

@@ -1,0 +1,64 @@
+// # cgroup Security and Resource Audit Engine
+//
+// Logline: Audits cgroup controller configurations against least-privilege host stability rules.
+//
+// Setup: Inspects memory, CPU, and PID boundaries for unconstrained denial-of-service risks.
+//
+// Beats:
+//   1. Audit memory.max for unbounded host OOM killer risks.
+//   2. Audit cpu.max for unconstrained multicore saturation vulnerabilities.
+//   3. Audit pids.max for thread exhaustion and fork-bomb vulnerabilities.
+//   4. Verify controller subtree enablement in cgroup v2 hierarchy.
+
+import "core/cgroup_types.oo";
+
+pub fn audit_cgroup(info: CgroupInfo) -> List[CgroupAuditItem] {
+    let mut findings: List[CgroupAuditItem] = list_new();
+
+    if info.memory_max == "max" {
+        findings = list_push(findings, make_cgroup_audit_item(
+            "memory",
+            "CRITICAL",
+            "Memory limit is unconstrained (memory.max=max). Process can cause host OOM panic.",
+            "Enforce MemoryMax= and MemoryHigh= limits in systemd slice or scope."
+        ));
+    }
+
+    if str_starts_with(info.cpu_max, "max") {
+        findings = list_push(findings, make_cgroup_audit_item(
+            "cpu",
+            "WARN",
+            "CPU execution quota is unconstrained (cpu.max=max). Process can saturate all CPU cores.",
+            "Enforce CPUQuota= (e.g. 50% or 200%) in systemd unit drop-in."
+        ));
+    }
+
+    if info.pids_max == "max" {
+        findings = list_push(findings, make_cgroup_audit_item(
+            "pids",
+            "CRITICAL",
+            "Process task and thread count is unbounded (pids.max=max). Vulnerable to fork-bomb.",
+            "Enforce TasksMax= limit (e.g. 256 or 512) in systemd service."
+        ));
+    }
+
+    if !str_contains(info.controllers, "memory") {
+        findings = list_push(findings, make_cgroup_audit_item(
+            "controllers",
+            "WARN",
+            "Memory controller not delegated or enabled in parent cgroup hierarchy.",
+            "Add '+memory' to /sys/fs/cgroup/cgroup.subtree_control."
+        ));
+    }
+
+    if list_len(findings) == 0 {
+        findings = list_push(findings, make_cgroup_audit_item(
+            "cgroup2",
+            "OK",
+            "All core controllers (memory, cpu, pids) bounded within sovereign limits.",
+            "Maintain active cgroup resource clamps."
+        ));
+    }
+
+    return findings;
+}

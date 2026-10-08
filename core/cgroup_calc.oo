@@ -1,0 +1,110 @@
+// # cgroup Resource Calculator and Systemd Drop-in Generator
+//
+// Logline: Converts human-readable resource limits into cgroup bytes and systemd unit drop-ins.
+//
+// Setup: Bridges user-specified memory, CPU, and PID limits with systemd resource directives.
+//
+// Beats:
+//   1. Convert human byte notations (e.g. 512M, 2G) into raw integer byte values.
+//   2. Convert CPU percentages (e.g. 50%, 200%) into cgroup v2 quota and period pairs.
+//   3. Format raw byte counts into clean human-readable metrics.
+//   4. Synthesize systemd service drop-in configuration snippets.
+
+
+pub fn format_bytes_human(bytes_str: String) -> String {
+    if bytes_str == "max" { return "unlimited (max)"; }
+    let n: Int = chars_len(bytes_str);
+    let mut num: Int = 0;
+    let mut i: Int = 0;
+    while i < n {
+        let ch: Int = byte_at(bytes_str, i);
+        if ch >= 48 && ch <= 57 {
+            num = (num * 10) + (ch - 48);
+        }
+        i = i + 1;
+    }
+
+    if num >= 1073741824 {
+        let gb: Int = num / 1073741824;
+        return to_string(gb) + " GiB";
+    }
+    if num >= 1048576 {
+        let mb: Int = num / 1048576;
+        return to_string(mb) + " MiB";
+    }
+    if num >= 1024 {
+        let kb: Int = num / 1024;
+        return to_string(kb) + " KiB";
+    }
+    return to_string(num) + " B";
+}
+
+pub fn parse_memory_spec(input: String) -> String {
+    let trimmed: String = str_trim(input);
+    if trimmed == "max" || chars_len(trimmed) == 0 { return "max"; }
+
+    let n: Int = chars_len(trimmed);
+    let last: String = str_slice(trimmed, n - 1, n);
+    let mut val: Int = 0;
+    let mut i: Int = 0;
+    while i < n - 1 {
+        let ch: Int = byte_at(trimmed, i);
+        if ch >= 48 && ch <= 57 { val = (val * 10) + (ch - 48); }
+        i = i + 1;
+    }
+
+    if last == "G" || last == "g" {
+        return to_string(val * 1073741824);
+    }
+    if last == "M" || last == "m" {
+        return to_string(val * 1048576);
+    }
+    if last == "K" || last == "k" {
+        return to_string(val * 1024);
+    }
+
+    let ch_last: Int = byte_at(trimmed, n - 1);
+    if ch_last >= 48 && ch_last <= 57 {
+        val = (val * 10) + (ch_last - 48);
+        return to_string(val);
+    }
+    return trimmed;
+}
+
+pub fn parse_cpu_spec(input: String) -> String {
+    let trimmed: String = str_trim(input);
+    if trimmed == "max" || chars_len(trimmed) == 0 { return "max 100000"; }
+    if str_contains(trimmed, " ") { return trimmed; }
+
+    if str_ends_with(trimmed, "%") {
+        let pct_str: String = str_slice(trimmed, 0, chars_len(trimmed) - 1);
+        let n: Int = chars_len(pct_str);
+        let mut pct: Int = 0;
+        let mut i: Int = 0;
+        while i < n {
+            let ch: Int = byte_at(pct_str, i);
+            if ch >= 48 && ch <= 57 { pct = (pct * 10) + (ch - 48); }
+            i = i + 1;
+        }
+        let quota: Int = pct * 1000;
+        return to_string(quota) + " 100000";
+    }
+    return trimmed + " 100000";
+}
+
+pub fn generate_systemd_dropin(mem: String, cpu: String, pids: String, unit_name: String) -> String {
+    let name: String = if chars_len(unit_name) > 0 { unit_name } else { "app" };
+    let mut out: String = "# /etc/systemd/system/" + name + ".service.d/50-cgroup-limits.conf\n";
+    out = out + "[Service]\n";
+    if chars_len(mem) > 0 {
+        out = out + "MemoryMax=" + mem + "\n";
+        out = out + "MemoryHigh=" + mem + "\n";
+    }
+    if chars_len(cpu) > 0 {
+        out = out + "CPUQuota=" + cpu + "\n";
+    }
+    if chars_len(pids) > 0 {
+        out = out + "TasksMax=" + pids + "\n";
+    }
+    return out;
+}
